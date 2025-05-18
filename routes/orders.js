@@ -20,16 +20,16 @@ router.post('/', async (req, res, next) => {
   }
 
   try {
-    // 1) Fetch product details for each item
+    // 1) Fetch product details
     const productIds = items.map(i => i.product_id);
-    const placeholders = productIds.map((_, idx) => `$${idx+1}`).join(',');
+    const placeholders = productIds.map((_, i) => `$${i+1}`).join(',');
     const productsRes = await db.query(
       `SELECT id, price FROM products WHERE id IN (${placeholders})`,
       productIds
     );
     const productsMap = new Map(productsRes.rows.map(p => [p.id, p.price]));
 
-    // 2) Calculate totals and prepare rows
+    // 2) Calculate total and prepare items
     let total = 0;
     const orderItemsData = items.map(({ product_id, quantity }) => {
       const unit_price = productsMap.get(product_id);
@@ -48,15 +48,22 @@ router.post('/', async (req, res, next) => {
     );
     const orderId = orderRes.rows[0].id;
 
-    // 4) Insert items
-    const itemPromises = orderItemsData.map(item =>
-      db.query(
-        `INSERT INTO order_items (order_id, product_id, quantity, unit_price, subtotal)
-         VALUES ($1,$2,$3,$4,$5)`,
-        [orderId, item.product_id, item.quantity, item.unit_price, item.subtotal.toFixed(2)]
+    // 4) Insert each order_item
+    await Promise.all(
+      orderItemsData.map(item =>
+        db.query(
+          `INSERT INTO order_items (order_id, product_id, quantity, unit_price, subtotal)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            orderId,
+            item.product_id,
+            item.quantity,
+            item.unit_price,
+            item.subtotal.toFixed(2)
+          ]
+        )
       )
     );
-    await Promise.all(itemPromises);
 
     res.status(201).json({ orderId, total: total.toFixed(2), status: 'pending' });
   } catch (err) {
@@ -73,7 +80,9 @@ router.get('/', async (req, res, next) => {
   try {
     const ordersRes = await db.query(
       `SELECT id, total, status, created_at
-       FROM orders WHERE user_id = $1 ORDER BY created_at DESC`,
+       FROM orders
+       WHERE user_id = $1
+       ORDER BY created_at DESC`,
       [userId]
     );
     res.json(ordersRes.rows);
@@ -90,10 +99,11 @@ router.get('/:id', async (req, res, next) => {
   const userId = req.user.id;
   const orderId = req.params.id;
   try {
-    // 1) Verify order belongs to user
+    // 1) Verify the order belongs to this user
     const orderRes = await db.query(
       `SELECT id, total, status, created_at
-       FROM orders WHERE id = $1 AND user_id = $2`,
+       FROM orders
+       WHERE id = $1 AND user_id = $2`,
       [orderId, userId]
     );
     if (orderRes.rows.length === 0) {
@@ -101,10 +111,14 @@ router.get('/:id', async (req, res, next) => {
     }
     const order = orderRes.rows[0];
 
-    // 2) Fetch items
+    // 2) Fetch all items for this order
     const itemsRes = await db.query(
-      `SELECT oi.id, oi.product_id, p.name AS product_name,
-              oi.quantity, oi.unit_price, oi.subtotal
+      `SELECT oi.id,
+              oi.product_id,
+              p.name AS product_name,
+              oi.quantity,
+              oi.unit_price,
+              oi.subtotal
        FROM order_items oi
        JOIN products p ON p.id = oi.product_id
        WHERE oi.order_id = $1`,
