@@ -16,23 +16,55 @@ app.use(helmet());
 app.use(morgan('combined'));
 
 const allowedOrigins = (process.env.CLIENT_URLS || process.env.CLIENT_URL).split(',').map(s => s.trim());
-app.use(
-  cors({ origin: (origin, cb) => {
+app.use(cors({
+  origin: (origin, cb) => {
     if (!origin) return cb(null, true);
     if (allowedOrigins.includes(origin)) cb(null, true);
     else cb(new Error(`CORS policy: Origin ${origin} not allowed`));
-  }, optionsSuccessStatus: 200 })
-);
+  },
+  optionsSuccessStatus: 200
+}));
 
 app.use(express.json());
 
 (async () => {
-  // Ensure contact & product & user tables (from before)
-  await db.query(`CREATE TABLE IF NOT EXISTS users (...);`);  // trimmed for brevity
-  await db.query(`CREATE TABLE IF NOT EXISTS products (...);`);
-  await db.query(`CREATE TABLE IF NOT EXISTS contact_messages (...);`);
+  // === Ensure users table ===
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      phone TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'customer',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
 
-  // New order tables
+  // === Ensure products table ===
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS products (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      price NUMERIC(10,2) NOT NULL,
+      image_url TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  // === Ensure contact_messages table ===
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS contact_messages (
+      id SERIAL PRIMARY KEY,
+      name TEXT,
+      email TEXT,
+      phone TEXT,
+      message TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  // === Ensure orders table ===
   await db.query(`
     CREATE TABLE IF NOT EXISTS orders (
       id SERIAL PRIMARY KEY,
@@ -42,6 +74,8 @@ app.use(express.json());
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+
+  // === Ensure order_items table ===
   await db.query(`
     CREATE TABLE IF NOT EXISTS order_items (
       id SERIAL PRIMARY KEY,
@@ -53,16 +87,24 @@ app.use(express.json());
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  console.log('DB tables ensured');
-})();
 
-// Mount routes
+  console.log('✅ DB tables ensured');
+})().catch(err => {
+  console.error('Failed to ensure DB tables:', err);
+  process.exit(1);
+});
+
+// Mount all routers
 app.use('/api/auth', authRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/products', productsRoutes);
 app.use('/api/orders', ordersRoutes);
 
-app.get('/', (req, res) => res.json({ message: 'Ghanish backend is up and running.' }));
+app.get('/', (req, res) => {
+  res.json({ message: 'Ghanish backend is up and running.' });
+});
+
+// Centralized error handler
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 3000;
