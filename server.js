@@ -7,57 +7,63 @@ const db = require('./db');
 const contactRoutes = require('./routes/contact');
 const productsRoutes = require('./routes/products');
 const authRoutes = require('./routes/auth');
+const ordersRoutes = require('./routes/orders');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
 
-// Security & logging
 app.use(helmet());
 app.use(morgan('combined'));
 
-// CORS configuration
 const allowedOrigins = (process.env.CLIENT_URLS || process.env.CLIENT_URL).split(',').map(s => s.trim());
 app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) callback(null, true);
-      else callback(new Error(`CORS policy: Origin ${origin} not allowed`));
-    },
-    optionsSuccessStatus: 200
-  })
+  cors({ origin: (origin, cb) => {
+    if (!origin) return cb(null, true);
+    if (allowedOrigins.includes(origin)) cb(null, true);
+    else cb(new Error(`CORS policy: Origin ${origin} not allowed`));
+  }, optionsSuccessStatus: 200 })
 );
 
-// JSON parser
 app.use(express.json());
 
-// Initialize DB tables: contact, products, users
 (async () => {
+  // Ensure contact & product & user tables (from before)
+  await db.query(`CREATE TABLE IF NOT EXISTS users (...);`);  // trimmed for brevity
+  await db.query(`CREATE TABLE IF NOT EXISTS products (...);`);
+  await db.query(`CREATE TABLE IF NOT EXISTS contact_messages (...);`);
+
+  // New order tables
   await db.query(`
-    CREATE TABLE IF NOT EXISTS users (
+    CREATE TABLE IF NOT EXISTS orders (
       id SERIAL PRIMARY KEY,
-      email TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      phone TEXT,
-      role TEXT NOT NULL DEFAULT 'customer',
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      total NUMERIC(10,2) NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  console.log('Users table ensured');
-  // (contact & products tables already ensured)
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS order_items (
+      id SERIAL PRIMARY KEY,
+      order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+      product_id INTEGER NOT NULL REFERENCES products(id),
+      quantity INTEGER NOT NULL CHECK (quantity > 0),
+      unit_price NUMERIC(10,2) NOT NULL,
+      subtotal NUMERIC(10,2) NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  console.log('DB tables ensured');
 })();
 
 // Mount routes
 app.use('/api/auth', authRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/products', productsRoutes);
+app.use('/api/orders', ordersRoutes);
 
-// Health check
 app.get('/', (req, res) => res.json({ message: 'Ghanish backend is up and running.' }));
-
-// Error handler
 app.use(errorHandler);
 
-// Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
