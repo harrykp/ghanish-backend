@@ -1,9 +1,11 @@
 // routes/products.js
 const express = require('express');
 const db = require('../db');
+const auth = require('../middleware/auth');
+const adminOnly = require('../middleware/adminOnly');
 const router = express.Router();
 
-// GET /api/products — list all products
+// GET /api/products — list all products (public)
 router.get('/', async (req, res, next) => {
   try {
     const result = await db.query('SELECT * FROM products ORDER BY created_at DESC');
@@ -13,7 +15,7 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-// GET /api/products/:id — get single product
+// GET /api/products/:id — get single product (public)
 router.get('/:id', async (req, res, next) => {
   const { id } = req.params;
   try {
@@ -27,8 +29,8 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
-// POST /api/products — create a new product
-router.post('/', async (req, res, next) => {
+// POST /api/products — create a new product (admin only)
+router.post('/', auth, adminOnly, async (req, res, next) => {
   const { name, description, price, image_url, stock } = req.body;
   if (!name || !description || price == null || stock == null) {
     return res.status(400).json({ error: 'Name, description, price, and stock are required.' });
@@ -39,17 +41,26 @@ router.post('/', async (req, res, next) => {
       VALUES ($1, $2, $3, $4, $5, NOW())
       RETURNING *;
     `;
-    const result = await db.query(queryText, [name, description, price, image_url || null, stock]);
+    const result = await db.query(queryText, [
+      name,
+      description,
+      price,
+      image_url || null,
+      stock
+    ]);
     res.status(201).json(result.rows[0]);
   } catch (err) {
     next(err);
   }
 });
 
-// PUT /api/products/:id — update a product
-router.put('/:id', async (req, res, next) => {
+// PUT /api/products/:id — update a product (admin only)
+router.put('/:id', auth, adminOnly, async (req, res, next) => {
   const { id } = req.params;
   const { name, description, price, image_url, stock } = req.body;
+  if (!name || !description || price == null || stock == null) {
+    return res.status(400).json({ error: 'All fields are required.' });
+  }
   try {
     const queryText = `
       UPDATE products SET
@@ -61,7 +72,14 @@ router.put('/:id', async (req, res, next) => {
       WHERE id = $6
       RETURNING *;
     `;
-    const result = await db.query(queryText, [name, description, price, image_url || null, stock, id]);
+    const result = await db.query(queryText, [
+      name,
+      description,
+      price,
+      image_url || null,
+      stock,
+      id
+    ]);
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Product not found' });
     }
@@ -71,8 +89,8 @@ router.put('/:id', async (req, res, next) => {
   }
 });
 
-// DELETE /api/products/:id — remove a product
-router.delete('/:id', async (req, res, next) => {
+// DELETE /api/products/:id — remove a product (admin only)
+router.delete('/:id', auth, adminOnly, async (req, res, next) => {
   const { id } = req.params;
   try {
     const result = await db.query('DELETE FROM products WHERE id = $1 RETURNING id', [id]);
