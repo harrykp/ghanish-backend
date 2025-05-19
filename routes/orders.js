@@ -2,6 +2,7 @@
 const express = require('express');
 const db = require('../db');
 const auth = require('../middleware/auth');
+const adminOnly = require('../middleware/adminOnly');
 const router = express.Router();
 
 // All routes below require a valid JWT
@@ -20,16 +21,14 @@ router.post('/', async (req, res, next) => {
   }
 
   try {
-    // 1) Fetch product details
     const productIds = items.map(i => i.product_id);
-    const placeholders = productIds.map((_, i) => `$${i+1}`).join(',');
+    const placeholders = productIds.map((_, i) => `$${i + 1}`).join(',');
     const productsRes = await db.query(
       `SELECT id, price FROM products WHERE id IN (${placeholders})`,
       productIds
     );
     const productsMap = new Map(productsRes.rows.map(p => [p.id, p.price]));
 
-    // 2) Calculate total and prepare items
     let total = 0;
     const orderItemsData = items.map(({ product_id, quantity }) => {
       const unit_price = productsMap.get(product_id);
@@ -41,14 +40,12 @@ router.post('/', async (req, res, next) => {
       return { product_id, quantity, unit_price, subtotal };
     });
 
-    // 3) Insert into orders
     const orderRes = await db.query(
       `INSERT INTO orders (user_id, total) VALUES ($1, $2) RETURNING id, created_at`,
       [userId, total.toFixed(2)]
     );
     const orderId = orderRes.rows[0].id;
 
-    // 4) Insert each order_item
     await Promise.all(
       orderItemsData.map(item =>
         db.query(
@@ -72,8 +69,7 @@ router.post('/', async (req, res, next) => {
 });
 
 /**
- * GET /api/orders
- * returns all orders for authenticated user
+ * GET /api/orders — user’s own orders
  */
 router.get('/', async (req, res, next) => {
   const userId = req.user.id;
@@ -92,14 +88,43 @@ router.get('/', async (req, res, next) => {
 });
 
 /**
- * GET /api/orders/:id
- * returns order detail including items
+ * GET /api/orders/all — admin: get all orders
+ */
+router.get('/all', adminOnly, async (req, res, next) => {
+  try {
+    const result = await db.query(`
+      SELECT o.id, o.total, o.status, o.created_at,
+             u.email AS user_email
+      FROM orders o
+      JOIN users u ON u.id = o.user_id
+      ORDER BY o.created_at DESC
+    `);
+    res.json(result.rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PUT /api/orders/:id/status — admin: update status
+ */
+router.put('/:id/status', adminOnly, async (req, res, next) => {
+  const { status } = req.body;
+  try {
+    await db.query('UPDATE orders SET status=$1 WHERE id=$2', [status, req.params.id]);
+    res.json({ message: 'Status updated' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/orders/:id — user: get specific order
  */
 router.get('/:id', async (req, res, next) => {
   const userId = req.user.id;
   const orderId = req.params.id;
   try {
-    // 1) Verify the order belongs to this user
     const orderRes = await db.query(
       `SELECT id, total, status, created_at
        FROM orders
@@ -111,7 +136,6 @@ router.get('/:id', async (req, res, next) => {
     }
     const order = orderRes.rows[0];
 
-    // 2) Fetch all items for this order
     const itemsRes = await db.query(
       `SELECT oi.id,
               oi.product_id,
