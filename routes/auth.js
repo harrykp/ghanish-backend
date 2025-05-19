@@ -1,4 +1,3 @@
-// routes/auth.js
 const express = require('express');
 const db = require('../db');
 const bcrypt = require('bcrypt');
@@ -9,31 +8,32 @@ const auth = require('../middleware/auth');
 const router = express.Router();
 
 const JWT_SECRET = process.env.JWT_SECRET;
-const CLIENT_URL = process.env.CLIENT_URLS?.split(',')[0] || process.env.CLIENT_URL; 
+const CLIENT_URL = process.env.CLIENT_URLS?.split(',')[0] || process.env.CLIENT_URL;
 const EMAIL_USER = process.env.EMAIL_USER;
 const EMAIL_PASS = process.env.EMAIL_PASS;
+
 if (!JWT_SECRET || !EMAIL_USER || !EMAIL_PASS) {
   throw new Error('Missing JWT_SECRET or email credentials in environment');
 }
 
-// Configure mailer
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: { user: EMAIL_USER, pass: EMAIL_PASS }
 });
 
-// Sign up
+// Signup
 router.post('/signup', async (req, res, next) => {
-  const { email, password, phone } = req.body;
-  if (!email || !password || !phone) {
-    return res.status(400).json({ error: 'Email, password, and phone are required.' });
+  const { full_name, email, password, phone } = req.body;
+  if (!full_name || !email || !password || !phone) {
+    return res.status(400).json({ error: 'All fields are required.' });
   }
   try {
     const hash = await bcrypt.hash(password, 10);
     const result = await db.query(
-      `INSERT INTO users (email, password_hash, phone)
-       VALUES ($1,$2,$3) RETURNING id, email, phone, role`,
-      [email, hash, phone]
+      `INSERT INTO users (full_name, email, password_hash, phone)
+       VALUES ($1,$2,$3,$4)
+       RETURNING id, full_name, email, phone, role`,
+      [full_name, email, hash, phone]
     );
     const user = result.rows[0];
     const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
@@ -50,7 +50,7 @@ router.post('/login', async (req, res, next) => {
   if (!email || !password) return res.status(400).json({ error: 'Email and password required.' });
   try {
     const { rows } = await db.query(
-      `SELECT id,email,password_hash,phone,role FROM users WHERE email=$1`,
+      `SELECT id, full_name, email, password_hash, phone, role FROM users WHERE email=$1`,
       [email]
     );
     if (rows.length === 0) return res.status(401).json({ error: 'Invalid credentials.' });
@@ -59,7 +59,13 @@ router.post('/login', async (req, res, next) => {
       return res.status(401).json({ error: 'Invalid credentials.' });
     }
     const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-    res.json({ token, user: { id: user.id, email: user.email, phone: user.phone, role: user.role } });
+    res.json({ token, user: {
+      id: user.id,
+      full_name: user.full_name,
+      email: user.email,
+      phone: user.phone,
+      role: user.role
+    }});
   } catch (err) {
     next(err);
   }
@@ -73,7 +79,7 @@ router.post('/forgot-password', async (req, res, next) => {
     const { rows } = await db.query(`SELECT id FROM users WHERE email=$1`, [email]);
     if (rows.length === 1) {
       const token = crypto.randomBytes(32).toString('hex');
-      const expires = new Date(Date.now() + 3600*1000); // 1h
+      const expires = new Date(Date.now() + 3600 * 1000); // 1 hour
       await db.query(
         `UPDATE users SET reset_token=$1, reset_token_expires=$2 WHERE id=$3`,
         [token, expires, rows[0].id]
@@ -85,7 +91,6 @@ router.post('/forgot-password', async (req, res, next) => {
         html: `<p>Click <a href="${link}">here</a> to reset your password. Link expires in 1 hour.</p>`
       });
     }
-    // Always respond 200 to prevent email enumeration
     res.json({ message: 'If that account exists, an email has been sent.' });
   } catch (err) {
     next(err);
@@ -100,8 +105,7 @@ router.post('/reset-password', async (req, res, next) => {
   }
   try {
     const { rows } = await db.query(
-      `SELECT id FROM users
-       WHERE reset_token=$1 AND reset_token_expires > NOW()`,
+      `SELECT id FROM users WHERE reset_token=$1 AND reset_token_expires > NOW()`,
       [token]
     );
     if (rows.length === 0) {
@@ -119,11 +123,11 @@ router.post('/reset-password', async (req, res, next) => {
   }
 });
 
-// Profile: view & edit (requires auth)
+// View Profile
 router.get('/profile', auth, async (req, res, next) => {
   try {
     const { rows } = await db.query(
-      `SELECT id,email,phone,role,created_at FROM users WHERE id=$1`,
+      `SELECT id, full_name, email, phone, role, created_at FROM users WHERE id=$1`,
       [req.user.id]
     );
     res.json(rows[0]);
@@ -132,28 +136,31 @@ router.get('/profile', auth, async (req, res, next) => {
   }
 });
 
+// Update Profile
 router.put('/profile', auth, async (req, res, next) => {
-  const { phone } = req.body;
-  if (!phone) return res.status(400).json({ error: 'Phone is required.' });
+  const { full_name, phone } = req.body;
+  if (!full_name || !phone) {
+    return res.status(400).json({ error: 'Full name and phone are required.' });
+  }
   try {
-    await db.query(`UPDATE users SET phone=$1 WHERE id=$2`, [phone, req.user.id]);
+    await db.query(
+      `UPDATE users SET full_name=$1, phone=$2 WHERE id=$3`,
+      [full_name, phone, req.user.id]
+    );
     res.json({ message: 'Profile updated.' });
   } catch (err) {
     next(err);
   }
 });
 
-// Change Password while logged in
+// Change Password (while logged in)
 router.put('/password', auth, async (req, res, next) => {
   const { currentPassword, newPassword } = req.body;
   if (!currentPassword || !newPassword) {
     return res.status(400).json({ error: 'Current and new passwords are required.' });
   }
   try {
-    const { rows } = await db.query(
-      `SELECT password_hash FROM users WHERE id=$1`,
-      [req.user.id]
-    );
+    const { rows } = await db.query(`SELECT password_hash FROM users WHERE id=$1`, [req.user.id]);
     const match = await bcrypt.compare(currentPassword, rows[0].password_hash);
     if (!match) return res.status(401).json({ error: 'Current password incorrect.' });
     const hash = await bcrypt.hash(newPassword, 10);
