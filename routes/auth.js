@@ -21,19 +21,20 @@ const transporter = nodemailer.createTransport({
   auth: { user: EMAIL_USER, pass: EMAIL_PASS }
 });
 
-// Signup
+// SIGNUP
 router.post('/signup', async (req, res, next) => {
   const { full_name, email, password, phone } = req.body;
   if (!full_name || !email || !password || !phone) {
     return res.status(400).json({ error: 'All fields are required.' });
   }
+
   try {
-    const hash = await bcrypt.hash(password, 10);
+    const hash = await bcrypt.hash(password.trim(), 10);
     const result = await db.query(
       `INSERT INTO users (full_name, email, password_hash, phone)
        VALUES ($1,$2,$3,$4)
        RETURNING id, full_name, email, phone, role`,
-      [full_name, email, hash, phone]
+      [full_name.trim(), email.trim(), hash, phone.trim()]
     );
     const user = result.rows[0];
     const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
@@ -44,13 +45,16 @@ router.post('/signup', async (req, res, next) => {
   }
 });
 
-// Login (with debug logs)
+// LOGIN (with debug logs)
 router.post('/login', async (req, res, next) => {
-  const { email, password } = req.body;
+  const email = (req.body.email || '').trim();
+  const password = (req.body.password || '').trim();
+
   if (!email || !password) {
-    console.log('LOGIN ATTEMPT FAILED: Missing email or password');
-    return res.status(400).json({ error: 'Email and password required.' });
+    console.log('LOGIN FAIL: Missing email or password');
+    return res.status(400).json({ error: 'Email and password are required.' });
   }
+
   try {
     console.log('LOGIN ATTEMPT:', email);
 
@@ -60,13 +64,14 @@ router.post('/login', async (req, res, next) => {
     );
 
     if (rows.length === 0) {
-      console.log('User not found for email:', email);
+      console.log('User not found:', email);
       return res.status(401).json({ error: 'Invalid credentials.' });
     }
 
     const user = rows[0];
     console.log('User found:', user.email);
-    console.log('Comparing password:', password, 'against hash:', user.password_hash);
+    console.log('Comparing password:', password);
+    console.log('Against hash:', user.password_hash);
 
     const match = await bcrypt.compare(password, user.password_hash);
     console.log('Password match result:', match);
@@ -74,7 +79,9 @@ router.post('/login', async (req, res, next) => {
     if (!match) {
       return res.status(401).json({ error: 'Invalid credentials.' });
     }
+
     const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+
     res.json({
       token,
       user: {
@@ -90,12 +97,13 @@ router.post('/login', async (req, res, next) => {
   }
 });
 
-// Forgot Password
+// FORGOT PASSWORD
 router.post('/forgot-password', async (req, res, next) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'Email is required.' });
+
   try {
-    const { rows } = await db.query(`SELECT id FROM users WHERE email=$1`, [email]);
+    const { rows } = await db.query(`SELECT id FROM users WHERE email=$1`, [email.trim()]);
     if (rows.length === 1) {
       const token = crypto.randomBytes(32).toString('hex');
       const expires = new Date(Date.now() + 3600 * 1000); // 1 hour
@@ -116,12 +124,13 @@ router.post('/forgot-password', async (req, res, next) => {
   }
 });
 
-// Reset Password
+// RESET PASSWORD
 router.post('/reset-password', async (req, res, next) => {
   const { token, password } = req.body;
   if (!token || !password) {
     return res.status(400).json({ error: 'Token and new password are required.' });
   }
+
   try {
     const { rows } = await db.query(
       `SELECT id FROM users WHERE reset_token=$1 AND reset_token_expires > NOW()`,
@@ -130,7 +139,8 @@ router.post('/reset-password', async (req, res, next) => {
     if (rows.length === 0) {
       return res.status(400).json({ error: 'Invalid or expired token.' });
     }
-    const hash = await bcrypt.hash(password, 10);
+
+    const hash = await bcrypt.hash(password.trim(), 10);
     await db.query(
       `UPDATE users SET password_hash=$1, reset_token=NULL, reset_token_expires=NULL
        WHERE id=$2`,
@@ -142,7 +152,7 @@ router.post('/reset-password', async (req, res, next) => {
   }
 });
 
-// View Profile
+// PROFILE
 router.get('/profile', auth, async (req, res, next) => {
   try {
     const { rows } = await db.query(
@@ -155,7 +165,6 @@ router.get('/profile', auth, async (req, res, next) => {
   }
 });
 
-// Update Profile
 router.put('/profile', auth, async (req, res, next) => {
   const { full_name, phone } = req.body;
   if (!full_name || !phone) {
@@ -164,7 +173,7 @@ router.put('/profile', auth, async (req, res, next) => {
   try {
     await db.query(
       `UPDATE users SET full_name=$1, phone=$2 WHERE id=$3`,
-      [full_name, phone, req.user.id]
+      [full_name.trim(), phone.trim(), req.user.id]
     );
     res.json({ message: 'Profile updated.' });
   } catch (err) {
@@ -172,17 +181,19 @@ router.put('/profile', auth, async (req, res, next) => {
   }
 });
 
-// Change Password (while logged in)
+// CHANGE PASSWORD (while logged in)
 router.put('/password', auth, async (req, res, next) => {
   const { currentPassword, newPassword } = req.body;
   if (!currentPassword || !newPassword) {
     return res.status(400).json({ error: 'Current and new passwords are required.' });
   }
+
   try {
     const { rows } = await db.query(`SELECT password_hash FROM users WHERE id=$1`, [req.user.id]);
-    const match = await bcrypt.compare(currentPassword, rows[0].password_hash);
+    const match = await bcrypt.compare(currentPassword.trim(), rows[0].password_hash);
     if (!match) return res.status(401).json({ error: 'Current password incorrect.' });
-    const hash = await bcrypt.hash(newPassword, 10);
+
+    const hash = await bcrypt.hash(newPassword.trim(), 10);
     await db.query(`UPDATE users SET password_hash=$1 WHERE id=$2`, [hash, req.user.id]);
     res.json({ message: 'Password changed successfully.' });
   } catch (err) {
