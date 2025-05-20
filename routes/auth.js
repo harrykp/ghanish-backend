@@ -44,28 +44,47 @@ router.post('/signup', async (req, res, next) => {
   }
 });
 
-// Login
+// Login (with debug logs)
 router.post('/login', async (req, res, next) => {
   const { email, password } = req.body;
-  if (!email || !password) return res.status(400).json({ error: 'Email and password required.' });
+  if (!email || !password) {
+    console.log('LOGIN ATTEMPT FAILED: Missing email or password');
+    return res.status(400).json({ error: 'Email and password required.' });
+  }
   try {
+    console.log('LOGIN ATTEMPT:', email);
+
     const { rows } = await db.query(
       `SELECT id, full_name, email, password_hash, phone, role FROM users WHERE email=$1`,
       [email]
     );
-    if (rows.length === 0) return res.status(401).json({ error: 'Invalid credentials.' });
+
+    if (rows.length === 0) {
+      console.log('User not found for email:', email);
+      return res.status(401).json({ error: 'Invalid credentials.' });
+    }
+
     const user = rows[0];
-    if (!(await bcrypt.compare(password, user.password_hash))) {
+    console.log('User found:', user.email);
+    console.log('Comparing password:', password, 'against hash:', user.password_hash);
+
+    const match = await bcrypt.compare(password, user.password_hash);
+    console.log('Password match result:', match);
+
+    if (!match) {
       return res.status(401).json({ error: 'Invalid credentials.' });
     }
     const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-    res.json({ token, user: {
-      id: user.id,
-      full_name: user.full_name,
-      email: user.email,
-      phone: user.phone,
-      role: user.role
-    }});
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        full_name: user.full_name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role
+      }
+    });
   } catch (err) {
     next(err);
   }
