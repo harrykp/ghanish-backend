@@ -16,6 +16,7 @@ app.use(helmet());
 app.use(morgan('combined'));
 
 const allowedOrigins = (process.env.CLIENT_URLS || process.env.CLIENT_URL).split(',').map(s => s.trim());
+
 app.use(cors({
   origin: (origin, cb) => {
     if (!origin) return cb(null, true);
