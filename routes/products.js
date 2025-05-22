@@ -1,105 +1,55 @@
 // routes/products.js
 const express = require('express');
-const db = require('../db');
+const router = express.Router();
 const auth = require('../middleware/auth');
 const adminOnly = require('../middleware/adminOnly');
-const router = express.Router();
+const Product = require('../models/Product');
 
-// GET /api/products — list all products (public)
-router.get('/', async (req, res, next) => {
+// Get all products
+router.get('/', async (req, res) => {
   try {
-    const result = await db.query('SELECT * FROM products ORDER BY created_at DESC');
-    res.json(result.rows);
+    const products = await Product.findAll();
+    res.json(products);
   } catch (err) {
-    next(err);
+    res.status(500).json({ error: 'Failed to fetch products' });
   }
 });
 
-// GET /api/products/:id — get single product (public)
-router.get('/:id', async (req, res, next) => {
-  const { id } = req.params;
+// Create a new product (admin only)
+router.post('/', auth, adminOnly, async (req, res) => {
   try {
-    const result = await db.query('SELECT * FROM products WHERE id = $1', [id]);
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Product not found' });
-    }
-    res.json(result.rows[0]);
+    const { name, description, price, image_url } = req.body;
+    const product = await Product.create({ name, description, price, image_url });
+    res.status(201).json(product);
   } catch (err) {
-    next(err);
+    res.status(500).json({ error: 'Failed to create product' });
   }
 });
 
-// POST /api/products — create a new product (admin only)
-router.post('/', auth, adminOnly, async (req, res, next) => {
-  const { name, description, price, image_url, stock } = req.body;
-  if (!name || !description || price == null || stock == null) {
-    return res.status(400).json({ error: 'Name, description, price, and stock are required.' });
-  }
+// Update an existing product (admin only)
+router.put('/:id', auth, adminOnly, async (req, res) => {
   try {
-    const queryText = `
-      INSERT INTO products (name, description, price, image_url, stock, created_at)
-      VALUES ($1, $2, $3, $4, $5, NOW())
-      RETURNING *;
-    `;
-    const result = await db.query(queryText, [
-      name,
-      description,
-      price,
-      image_url || null,
-      stock
-    ]);
-    res.status(201).json(result.rows[0]);
+    const { name, description, price, image_url } = req.body;
+    const product = await Product.findByPk(req.params.id);
+    if (!product) return res.status(404).json({ error: 'Product not found' });
+
+    await product.update({ name, description, price, image_url });
+    res.json(product);
   } catch (err) {
-    next(err);
+    res.status(500).json({ error: 'Failed to update product' });
   }
 });
 
-// PUT /api/products/:id — update a product (admin only)
-router.put('/:id', auth, adminOnly, async (req, res, next) => {
-  const { id } = req.params;
-  const { name, description, price, image_url, stock } = req.body;
-  if (!name || !description || price == null || stock == null) {
-    return res.status(400).json({ error: 'All fields are required.' });
-  }
+// Delete a product (admin only)
+router.delete('/:id', auth, adminOnly, async (req, res) => {
   try {
-    const queryText = `
-      UPDATE products SET
-        name = $1,
-        description = $2,
-        price = $3,
-        image_url = $4,
-        stock = $5
-      WHERE id = $6
-      RETURNING *;
-    `;
-    const result = await db.query(queryText, [
-      name,
-      description,
-      price,
-      image_url || null,
-      stock,
-      id
-    ]);
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Product not found' });
-    }
-    res.json(result.rows[0]);
-  } catch (err) {
-    next(err);
-  }
-});
+    const product = await Product.findByPk(req.params.id);
+    if (!product) return res.status(404).json({ error: 'Product not found' });
 
-// DELETE /api/products/:id — remove a product (admin only)
-router.delete('/:id', auth, adminOnly, async (req, res, next) => {
-  const { id } = req.params;
-  try {
-    const result = await db.query('DELETE FROM products WHERE id = $1 RETURNING id', [id]);
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Product not found' });
-    }
-    res.json({ message: 'Product deleted', id: result.rows[0].id });
+    await product.destroy();
+    res.json({ message: 'Product deleted' });
   } catch (err) {
-    next(err);
+    res.status(500).json({ error: 'Failed to delete product' });
   }
 });
 
