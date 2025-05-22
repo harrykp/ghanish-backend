@@ -10,7 +10,6 @@ router.use(auth);
 
 /**
  * POST /api/orders
- * body: { items: [{ product_id, quantity }] }
  */
 router.post('/', async (req, res, next) => {
   const userId = req.user.id;
@@ -32,9 +31,7 @@ router.post('/', async (req, res, next) => {
     let total = 0;
     const orderItemsData = items.map(({ product_id, quantity }) => {
       const unit_price = productsMap.get(product_id);
-      if (unit_price == null) {
-        throw new Error(`Product ${product_id} not found`);
-      }
+      if (unit_price == null) throw new Error(`Product ${product_id} not found`);
       const subtotal = parseFloat(unit_price) * quantity;
       total += subtotal;
       return { product_id, quantity, unit_price, subtotal };
@@ -46,21 +43,13 @@ router.post('/', async (req, res, next) => {
     );
     const orderId = orderRes.rows[0].id;
 
-    await Promise.all(
-      orderItemsData.map(item =>
-        db.query(
-          `INSERT INTO order_items (order_id, product_id, quantity, unit_price, subtotal)
-           VALUES ($1, $2, $3, $4, $5)`,
-          [
-            orderId,
-            item.product_id,
-            item.quantity,
-            item.unit_price,
-            item.subtotal.toFixed(2)
-          ]
-        )
+    await Promise.all(orderItemsData.map(item =>
+      db.query(
+        `INSERT INTO order_items (order_id, product_id, quantity, unit_price, subtotal)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [orderId, item.product_id, item.quantity, item.unit_price, item.subtotal.toFixed(2)]
       )
-    );
+    ));
 
     res.status(201).json({ orderId, total: total.toFixed(2), status: 'pending' });
   } catch (err) {
@@ -74,28 +63,26 @@ router.post('/', async (req, res, next) => {
 router.get('/', async (req, res, next) => {
   const userId = req.user.id;
   try {
-    const ordersRes = await db.query(
+    const result = await db.query(
       `SELECT id, total, status, created_at
        FROM orders
-       WHERE user_id = $1
-       ORDER BY created_at DESC`,
+       WHERE user_id = $1 ORDER BY created_at DESC`,
       [userId]
     );
-    res.json(ordersRes.rows);
+    res.json(result.rows);
   } catch (err) {
     next(err);
   }
 });
 
 /**
- * GET /api/orders/all — admin: get all orders (with user full name & phone)
+ * GET /api/orders/all — admin
  */
 router.get('/all', adminOnly, async (req, res, next) => {
   try {
     const result = await db.query(`
       SELECT o.id, o.total, o.status, o.created_at,
-             u.full_name AS full_name,
-             u.phone AS phone
+             u.full_name, u.phone
       FROM orders o
       JOIN users u ON u.id = o.user_id
       ORDER BY o.created_at DESC
@@ -107,7 +94,7 @@ router.get('/all', adminOnly, async (req, res, next) => {
 });
 
 /**
- * PUT /api/orders/:id/status — admin: update status
+ * PUT /api/orders/:id/status — admin
  */
 router.put('/:id/status', adminOnly, async (req, res, next) => {
   const { status } = req.body;
@@ -120,37 +107,61 @@ router.put('/:id/status', adminOnly, async (req, res, next) => {
 });
 
 /**
- * GET /api/orders/:id — user: get specific order
+ * GET /api/orders/:id — user: own order
  */
 router.get('/:id', async (req, res, next) => {
   const userId = req.user.id;
   const orderId = req.params.id;
+
   try {
     const orderRes = await db.query(
-      `SELECT id, total, status, created_at
-       FROM orders
-       WHERE id = $1 AND user_id = $2`,
+      `SELECT id, total, status, created_at FROM orders WHERE id = $1 AND user_id = $2`,
       [orderId, userId]
     );
     if (orderRes.rows.length === 0) {
       return res.status(404).json({ error: 'Order not found.' });
     }
-    const order = orderRes.rows[0];
 
     const itemsRes = await db.query(
-      `SELECT oi.id,
-              oi.product_id,
-              p.name AS product_name,
-              oi.quantity,
-              oi.unit_price,
-              oi.subtotal
+      `SELECT oi.id, oi.product_id, p.name AS product_name,
+              oi.quantity, oi.unit_price, oi.subtotal
        FROM order_items oi
        JOIN products p ON p.id = oi.product_id
        WHERE oi.order_id = $1`,
       [orderId]
     );
 
-    res.json({ ...order, items: itemsRes.rows });
+    res.json({ ...orderRes.rows[0], items: itemsRes.rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/orders/:id/admin — admin: view any order
+ */
+router.get('/:id/admin', adminOnly, async (req, res, next) => {
+  const orderId = req.params.id;
+
+  try {
+    const orderRes = await db.query(
+      `SELECT id, total, status, created_at FROM orders WHERE id = $1`,
+      [orderId]
+    );
+    if (orderRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Order not found.' });
+    }
+
+    const itemsRes = await db.query(
+      `SELECT oi.id, oi.product_id, p.name AS product_name,
+              oi.quantity, oi.unit_price, oi.subtotal
+       FROM order_items oi
+       JOIN products p ON p.id = oi.product_id
+       WHERE oi.order_id = $1`,
+      [orderId]
+    );
+
+    res.json({ ...orderRes.rows[0], items: itemsRes.rows });
   } catch (err) {
     next(err);
   }
