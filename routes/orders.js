@@ -88,13 +88,13 @@ router.get('/', async (req, res, next) => {
 });
 
 /**
- * GET /api/orders/all — admin: get all orders
+ * GET /api/orders/all — admin: get all orders (with user full name & phone)
  */
 router.get('/all', adminOnly, async (req, res, next) => {
   try {
     const result = await db.query(`
       SELECT o.id, o.total, o.status, o.created_at,
-             u.email AS user_email
+             u.full_name, u.phone
       FROM orders o
       JOIN users u ON u.id = o.user_id
       ORDER BY o.created_at DESC
