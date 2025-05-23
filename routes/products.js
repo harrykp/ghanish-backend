@@ -5,16 +5,20 @@ const router = express.Router();
 const auth = require('../middleware/auth');
 const adminOnly = require('../middleware/adminOnly');
 
-// Get all products (public)
-router.get('/', async (req, res) => {
+// GET /api/products
+router.get('/', async (req, res, next) => {
+  const { category } = req.query;
   try {
-    const result = await db.query('SELECT * FROM products ORDER BY id DESC');
+    const query = category
+      ? db.query('SELECT * FROM products WHERE category=$1 ORDER BY created_at DESC', [category])
+      : db.query('SELECT * FROM products ORDER BY created_at DESC');
+    const result = await query;
     res.json(result.rows);
   } catch (err) {
-    console.error('Error fetching products:', err);
-    res.status(500).json({ error: 'Failed to fetch products' });
+    next(err);
   }
 });
+
 
 // Create a new product (admin only)
 router.post('/', auth, adminOnly, async (req, res) => {
