@@ -4,10 +4,13 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const db = require('./db');
+
 const contactRoutes = require('./routes/contact');
 const productsRoutes = require('./routes/products');
 const authRoutes = require('./routes/auth');
 const ordersRoutes = require('./routes/orders');
+const analyticsRoutes = require('./routes/analytics'); // ✅ NEW
+
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -33,10 +36,13 @@ app.use(express.json());
   await db.query(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
+      full_name TEXT,
       email TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
       phone TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'customer',
+      reset_token TEXT,
+      reset_token_expires TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
@@ -48,7 +54,9 @@ app.use(express.json());
       name TEXT NOT NULL,
       description TEXT,
       price NUMERIC(10,2) NOT NULL,
+      stock INTEGER DEFAULT 0,
       image_url TEXT,
+      category TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
@@ -71,6 +79,7 @@ app.use(express.json());
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       total NUMERIC(10,2) NOT NULL,
+      discount_code TEXT,
       status TEXT NOT NULL DEFAULT 'pending',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
@@ -89,6 +98,17 @@ app.use(express.json());
     );
   `);
 
+  // === Ensure discounts table ===
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS discounts (
+      id SERIAL PRIMARY KEY,
+      code TEXT UNIQUE NOT NULL,
+      percent_off INTEGER NOT NULL CHECK (percent_off > 0 AND percent_off <= 100),
+      expires_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
   console.log('✅ DB tables ensured');
 })().catch(err => {
   console.error('Failed to ensure DB tables:', err);
@@ -100,6 +120,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/products', productsRoutes);
 app.use('/api/orders', ordersRoutes);
+app.use('/api/admin', analyticsRoutes); // ✅ NEW
 
 app.get('/', (req, res) => {
   res.json({ message: 'Ghanish backend is up and running.' });
