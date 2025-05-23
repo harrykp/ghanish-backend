@@ -4,13 +4,19 @@ const db = require('../db');
 const auth = require('../middleware/auth');
 const adminOnly = require('../middleware/adminOnly');
 const router = express.Router();
+const nodemailer = require('nodemailer');
 
-// All routes below require a valid JWT
+const EMAIL_USER = process.env.EMAIL_USER;
+const EMAIL_PASS = process.env.EMAIL_PASS;
+
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: { user: EMAIL_USER, pass: EMAIL_PASS }
+});
+
 router.use(auth);
 
-/**
- * POST /api/orders
- */
+// Create Order
 router.post('/', async (req, res, next) => {
   const userId = req.user.id;
   const { items } = req.body;
@@ -57,17 +63,13 @@ router.post('/', async (req, res, next) => {
   }
 });
 
-/**
- * GET /api/orders — user’s own orders
- */
+// User's Orders
 router.get('/', async (req, res, next) => {
-  const userId = req.user.id;
   try {
     const result = await db.query(
       `SELECT id, total, status, created_at
-       FROM orders
-       WHERE user_id = $1 ORDER BY created_at DESC`,
-      [userId]
+       FROM orders WHERE user_id=$1 ORDER BY created_at DESC`,
+      [req.user.id]
     );
     res.json(result.rows);
   } catch (err) {
@@ -75,14 +77,12 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-/**
- * GET /api/orders/all — admin
- */
+// Admin: All Orders
 router.get('/all', adminOnly, async (req, res, next) => {
   try {
     const result = await db.query(`
       SELECT o.id, o.total, o.status, o.created_at,
-             u.full_name, u.phone
+             u.full_name, u.phone, u.email
       FROM orders o
       JOIN users u ON u.id = o.user_id
       ORDER BY o.created_at DESC
@@ -93,75 +93,51 @@ router.get('/all', adminOnly, async (req, res, next) => {
   }
 });
 
-/**
- * PUT /api/orders/:id/status — admin
- */
+// Admin: Specific Order (with items)
+router.get('/:id/admin', adminOnly, async (req, res, next) => {
+  try {
+    const orderRes = await db.query(
+      `SELECT id, total, status, created_at FROM orders WHERE id=$1`,
+      [req.params.id]
+    );
+    const order = orderRes.rows[0];
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+
+    const itemsRes = await db.query(
+      `SELECT oi.quantity, oi.unit_price, oi.subtotal,
+              p.name AS product_name
+       FROM order_items oi
+       JOIN products p ON p.id = oi.product_id
+       WHERE order_id = $1`,
+      [req.params.id]
+    );
+
+    res.json({ ...order, items: itemsRes.rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Admin: Update Status + Send Email
 router.put('/:id/status', adminOnly, async (req, res, next) => {
   const { status } = req.body;
   try {
-    await db.query('UPDATE orders SET status=$1 WHERE id=$2', [status, req.params.id]);
-    res.json({ message: 'Status updated' });
-  } catch (err) {
-    next(err);
-  }
-});
+    await db.query(`UPDATE orders SET status=$1 WHERE id=$2`, [status, req.params.id]);
 
-/**
- * GET /api/orders/:id — user: own order
- */
-router.get('/:id', async (req, res, next) => {
-  const userId = req.user.id;
-  const orderId = req.params.id;
-
-  try {
-    const orderRes = await db.query(
-      `SELECT id, total, status, created_at FROM orders WHERE id = $1 AND user_id = $2`,
-      [orderId, userId]
+    const userRes = await db.query(
+      `SELECT u.email, u.full_name FROM orders o JOIN users u ON u.id = o.user_id WHERE o.id = $1`,
+      [req.params.id]
     );
-    if (orderRes.rows.length === 0) {
-      return res.status(404).json({ error: 'Order not found.' });
+    const user = userRes.rows[0];
+    if (user) {
+      await transporter.sendMail({
+        to: user.email,
+        subject: `Your Ghanish Order #${req.params.id} is now "${status}"`,
+        html: `<p>Dear ${user.full_name},</p><p>Your order status has been updated to <strong>${status}</strong>.</p>`
+      });
     }
 
-    const itemsRes = await db.query(
-      `SELECT oi.id, oi.product_id, p.name AS product_name,
-              oi.quantity, oi.unit_price, oi.subtotal
-       FROM order_items oi
-       JOIN products p ON p.id = oi.product_id
-       WHERE oi.order_id = $1`,
-      [orderId]
-    );
-
-    res.json({ ...orderRes.rows[0], items: itemsRes.rows });
-  } catch (err) {
-    next(err);
-  }
-});
-
-/**
- * GET /api/orders/:id/admin — admin: view any order
- */
-router.get('/:id/admin', adminOnly, async (req, res, next) => {
-  const orderId = req.params.id;
-
-  try {
-    const orderRes = await db.query(
-      `SELECT id, total, status, created_at FROM orders WHERE id = $1`,
-      [orderId]
-    );
-    if (orderRes.rows.length === 0) {
-      return res.status(404).json({ error: 'Order not found.' });
-    }
-
-    const itemsRes = await db.query(
-      `SELECT oi.id, oi.product_id, p.name AS product_name,
-              oi.quantity, oi.unit_price, oi.subtotal
-       FROM order_items oi
-       JOIN products p ON p.id = oi.product_id
-       WHERE oi.order_id = $1`,
-      [orderId]
-    );
-
-    res.json({ ...orderRes.rows[0], items: itemsRes.rows });
+    res.json({ message: 'Status updated and notification sent' });
   } catch (err) {
     next(err);
   }
