@@ -109,9 +109,8 @@ router.get('/', async (req, res, next) => {
 // ✅ Admin: Get all orders (placed before /:id to prevent conflict)
 router.get('/all', adminOnly, async (req, res, next) => {
   try {
-    let { page, limit } = req.query;
-    page = parseInt(page);
-    limit = parseInt(limit);
+    const page = parseInt(req.query.page, 10);
+    const limit = parseInt(req.query.limit, 10);
 
     const baseQuery = `
       SELECT o.id, o.total, o.status, o.created_at,
@@ -131,13 +130,14 @@ router.get('/all', adminOnly, async (req, res, next) => {
       });
     } else {
       const all = await db.query(baseQuery);
-      return res.json(all.rows);
+      return res.json({ total: all.rows.length, orders: all.rows });
     }
   } catch (err) {
     console.error('❌ Error fetching admin orders:', err);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
+
 
 // === Admin: View single order (modal) ===
 router.get('/:id/admin', adminOnly, async (req, res, next) => {
