@@ -15,7 +15,7 @@ const transporter = nodemailer.createTransport({
 
 router.use(auth);
 
-// Create Order
+// === Create Order ===
 router.post('/', async (req, res, next) => {
   const userId = req.user.id;
   const { items, discount_code } = req.body;
@@ -43,7 +43,6 @@ router.post('/', async (req, res, next) => {
     });
 
     let discountPercent = 0;
-
     if (discount_code) {
       const dRes = await db.query(
         `SELECT percent_off FROM discounts WHERE code = $1 AND (expires_at IS NULL OR expires_at > NOW())`,
@@ -86,14 +85,13 @@ router.post('/', async (req, res, next) => {
       discount: discountPercent,
       status: 'pending'
     });
-
   } catch (err) {
     console.error('❌ Error creating order:', err);
     next(err);
   }
 });
 
-// User: Get own orders
+// === User: Get own orders ===
 router.get('/', async (req, res, next) => {
   try {
     const result = await db.query(
@@ -108,7 +106,7 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-// Admin: Get all orders (with optional pagination)
+// === Admin: Get all orders (with optional pagination) ===
 router.get('/all', adminOnly, async (req, res, next) => {
   try {
     let { page, limit } = req.query;
@@ -141,7 +139,7 @@ router.get('/all', adminOnly, async (req, res, next) => {
   }
 });
 
-// Admin: View single order
+// === Admin: View single order (modal) ===
 router.get('/:id/admin', adminOnly, async (req, res, next) => {
   try {
     const orderRes = await db.query(
@@ -167,7 +165,53 @@ router.get('/:id/admin', adminOnly, async (req, res, next) => {
   }
 });
 
-// Admin: Update status and email user
+// === User: View single order (confirmation page) ===
+router.get('/:id', async (req, res, next) => {
+  const userId = req.user.id;
+  const orderId = parseInt(req.params.id, 10);
+  if (isNaN(orderId)) {
+    return res.status(400).json({ error: 'Invalid order ID' });
+  }
+
+  try {
+    const orderRes = await db.query(
+      `SELECT id, total, discount_code, status, created_at
+       FROM orders WHERE id = $1 AND user_id = $2`,
+      [orderId, userId]
+    );
+    if (orderRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Order not found.' });
+    }
+
+    const order = orderRes.rows[0];
+
+    const itemsRes = await db.query(
+      `SELECT oi.quantity, oi.unit_price, oi.subtotal, p.name AS product_name
+       FROM order_items oi
+       JOIN products p ON p.id = oi.product_id
+       WHERE order_id = $1`,
+      [orderId]
+    );
+
+    let discount = 0;
+    if (order.discount_code) {
+      const dRes = await db.query(
+        `SELECT percent_off FROM discounts WHERE code = $1`,
+        [order.discount_code]
+      );
+      if (dRes.rows.length) {
+        discount = dRes.rows[0].percent_off;
+      }
+    }
+
+    res.json({ ...order, discount, items: itemsRes.rows });
+  } catch (err) {
+    console.error('❌ Error fetching user order by ID:', err);
+    next(err);
+  }
+});
+
+// === Admin: Update status + notify user ===
 router.put('/:id/status', adminOnly, async (req, res, next) => {
   const { status } = req.body;
   try {
