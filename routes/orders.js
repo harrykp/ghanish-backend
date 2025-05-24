@@ -1,4 +1,3 @@
-// routes/orders.js
 const express = require('express');
 const db = require('../db');
 const auth = require('../middleware/auth');
@@ -63,7 +62,6 @@ router.post('/', async (req, res, next) => {
       `INSERT INTO orders (user_id, total, discount_code) VALUES ($1, $2, $3) RETURNING id, created_at`,
       [userId, finalTotal.toFixed(2), discount_code || null]
     );
-
     const orderId = orderRes.rows[0].id;
 
     await Promise.all(
@@ -95,7 +93,7 @@ router.post('/', async (req, res, next) => {
   }
 });
 
-// User Orders
+// User: Get own orders
 router.get('/', async (req, res, next) => {
   try {
     const result = await db.query(
@@ -110,39 +108,40 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-// Admin: All Orders with Pagination
+// Admin: Get all orders (with optional pagination)
 router.get('/all', adminOnly, async (req, res, next) => {
-  const page = parseInt(req.query.page || '1');
-  const limit = parseInt(req.query.limit || '10');
-  const offset = (page - 1) * limit;
-
   try {
-    const totalRes = await db.query('SELECT COUNT(*) FROM orders');
-    const total = parseInt(totalRes.rows[0].count);
+    let { page, limit } = req.query;
+    page = parseInt(page);
+    limit = parseInt(limit);
 
-    const result = await db.query(`
+    const baseQuery = `
       SELECT o.id, o.total, o.status, o.created_at,
              u.full_name, u.phone
       FROM orders o
       JOIN users u ON u.id = o.user_id
       ORDER BY o.created_at DESC
-      LIMIT $1 OFFSET $2
-    `, [limit, offset]);
+    `;
 
-    res.json({
-      data: result.rows,
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(total / limit)
-    });
+    if (!isNaN(page) && !isNaN(limit)) {
+      const offset = (page - 1) * limit;
+      const paginated = await db.query(`${baseQuery} LIMIT $1 OFFSET $2`, [limit, offset]);
+      const countRes = await db.query('SELECT COUNT(*) FROM orders');
+      return res.json({
+        total: parseInt(countRes.rows[0].count),
+        orders: paginated.rows
+      });
+    } else {
+      const all = await db.query(baseQuery);
+      return res.json(all.rows);
+    }
   } catch (err) {
     console.error('❌ Error fetching admin orders:', err);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
-// Admin: Get Single Order Details
+// Admin: View single order
 router.get('/:id/admin', adminOnly, async (req, res, next) => {
   try {
     const orderRes = await db.query(
@@ -168,7 +167,7 @@ router.get('/:id/admin', adminOnly, async (req, res, next) => {
   }
 });
 
-// Admin: Update Order Status and Email
+// Admin: Update status and email user
 router.put('/:id/status', adminOnly, async (req, res, next) => {
   const { status } = req.body;
   try {
