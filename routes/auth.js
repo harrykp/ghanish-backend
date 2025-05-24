@@ -165,21 +165,37 @@ router.get('/profile', auth, async (req, res, next) => {
   }
 });
 
+// Update profile (including optional email change)
 router.put('/profile', auth, async (req, res, next) => {
-  const { full_name, phone } = req.body;
+  const { full_name, phone, email } = req.body;
   if (!full_name || !phone) {
     return res.status(400).json({ error: 'Full name and phone are required.' });
   }
+
   try {
-    await db.query(
-      `UPDATE users SET full_name=$1, phone=$2 WHERE id=$3`,
-      [full_name.trim(), phone.trim(), req.user.id]
-    );
+    if (email) {
+      const existing = await db.query(`SELECT id FROM users WHERE email=$1 AND id<>$2`, [email.trim(), req.user.id]);
+      if (existing.rows.length) {
+        return res.status(409).json({ error: 'Email already in use.' });
+      }
+
+      await db.query(
+        `UPDATE users SET full_name=$1, phone=$2, email=$3 WHERE id=$4`,
+        [full_name.trim(), phone.trim(), email.trim(), req.user.id]
+      );
+    } else {
+      await db.query(
+        `UPDATE users SET full_name=$1, phone=$2 WHERE id=$3`,
+        [full_name.trim(), phone.trim(), req.user.id]
+      );
+    }
+
     res.json({ message: 'Profile updated.' });
   } catch (err) {
     next(err);
   }
 });
+
 
 // CHANGE PASSWORD (while logged in)
 router.put('/password', auth, async (req, res, next) => {
