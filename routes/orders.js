@@ -94,12 +94,11 @@ router.post('/', async (req, res, next) => {
   }
 });
 
-// User's Orders List
+// User Orders
 router.get('/', async (req, res, next) => {
   try {
     const result = await db.query(
-      `SELECT id, total, status, created_at
-       FROM orders WHERE user_id=$1 ORDER BY created_at DESC`,
+      `SELECT id, total, status, created_at FROM orders WHERE user_id = $1 ORDER BY created_at DESC`,
       [req.user.id]
     );
     res.json(result.rows);
@@ -108,21 +107,16 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-// Get specific order (for user)
+// Get specific order (user)
 router.get('/:id', async (req, res, next) => {
   const userId = req.user.id;
   const orderId = req.params.id;
   try {
     const orderRes = await db.query(
-      `SELECT id, total, discount_code, status, created_at
-       FROM orders
-       WHERE id = $1 AND user_id = $2`,
+      `SELECT id, total, discount_code, status, created_at FROM orders WHERE id = $1 AND user_id = $2`,
       [orderId, userId]
     );
-
-    if (orderRes.rows.length === 0) {
-      return res.status(404).json({ error: 'Order not found.' });
-    }
+    if (orderRes.rows.length === 0) return res.status(404).json({ error: 'Order not found' });
 
     const order = orderRes.rows[0];
 
@@ -135,29 +129,17 @@ router.get('/:id', async (req, res, next) => {
       [orderId]
     );
 
-    // Get discount percent if any
     let discount = 0;
     if (order.discount_code) {
-      const dRes = await db.query(
-        `SELECT percent_off FROM discounts WHERE code = $1`,
-        [order.discount_code]
-      );
-      if (dRes.rows.length) {
-        discount = dRes.rows[0].percent_off;
-      }
+      const dRes = await db.query(`SELECT percent_off FROM discounts WHERE code = $1`, [order.discount_code]);
+      if (dRes.rows.length) discount = dRes.rows[0].percent_off;
     }
 
-    res.json({
-      ...order,
-      discount,
-      items: itemsRes.rows
-    });
-
+    res.json({ ...order, discount, items: itemsRes.rows });
   } catch (err) {
     next(err);
   }
 });
-
 
 // Admin: All Orders
 router.get('/all', adminOnly, async (req, res, next) => {
@@ -175,19 +157,15 @@ router.get('/all', adminOnly, async (req, res, next) => {
   }
 });
 
-// Admin: Specific Order (with items)
+// Admin: Specific Order
 router.get('/:id/admin', adminOnly, async (req, res, next) => {
   try {
-    const orderRes = await db.query(
-      `SELECT id, total, status, created_at FROM orders WHERE id=$1`,
-      [req.params.id]
-    );
+    const orderRes = await db.query(`SELECT id, total, status, created_at FROM orders WHERE id = $1`, [req.params.id]);
     const order = orderRes.rows[0];
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
     const itemsRes = await db.query(
-      `SELECT oi.quantity, oi.unit_price, oi.subtotal,
-              p.name AS product_name
+      `SELECT oi.quantity, oi.unit_price, oi.subtotal, p.name AS product_name
        FROM order_items oi
        JOIN products p ON p.id = oi.product_id
        WHERE order_id = $1`,
@@ -200,16 +178,16 @@ router.get('/:id/admin', adminOnly, async (req, res, next) => {
   }
 });
 
-// Admin: Update Status + Send Email
+// Admin: Update Status + Email
 router.put('/:id/status', adminOnly, async (req, res, next) => {
   const { status } = req.body;
   try {
-    await db.query(`UPDATE orders SET status=$1 WHERE id=$2`, [status, req.params.id]);
-
-    const userRes = await db.query(
-      `SELECT u.email, u.full_name FROM orders o JOIN users u ON u.id = o.user_id WHERE o.id = $1`,
-      [req.params.id]
-    );
+    await db.query(`UPDATE orders SET status = $1 WHERE id = $2`, [status, req.params.id]);
+    const userRes = await db.query(`
+      SELECT u.email, u.full_name
+      FROM orders o
+      JOIN users u ON u.id = o.user_id
+      WHERE o.id = $1`, [req.params.id]);
     const user = userRes.rows[0];
     if (user) {
       await transporter.sendMail({
@@ -218,7 +196,6 @@ router.put('/:id/status', adminOnly, async (req, res, next) => {
         html: `<p>Dear ${user.full_name},</p><p>Your order status has been updated to <strong>${status}</strong>.</p>`
       });
     }
-
     res.json({ message: 'Status updated and notification sent' });
   } catch (err) {
     next(err);
