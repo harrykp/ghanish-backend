@@ -9,7 +9,8 @@ const contactRoutes = require('./routes/contact');
 const productsRoutes = require('./routes/products');
 const authRoutes = require('./routes/auth');
 const ordersRoutes = require('./routes/orders');
-const adminRoutes = require('./routes/admin'); // ✅ Replaces analyticsRoutes
+const adminRoutes = require('./routes/admin');
+const discountRoutes = require('./routes/discounts'); // ✅ NEW: Discounts router
 
 const errorHandler = require('./middleware/errorHandler');
 
@@ -120,7 +121,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/products', productsRoutes);
 app.use('/api/orders', ordersRoutes);
-app.use('/api/admin', adminRoutes); // ✅ Mounts all /api/admin endpoints
+app.use('/api/admin', adminRoutes);
+app.use('/api/discounts', discountRoutes); // ✅ Mount discount routes
 
 app.get('/', (req, res) => {
   res.json({ message: 'Ghanish backend is up and running.' });
