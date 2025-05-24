@@ -91,22 +91,7 @@ router.post('/', async (req, res, next) => {
   }
 });
 
-// === User: Get own orders ===
-router.get('/', async (req, res, next) => {
-  try {
-    const result = await db.query(
-      `SELECT id, total, status, created_at
-       FROM orders WHERE user_id=$1 ORDER BY created_at DESC`,
-      [req.user.id]
-    );
-    res.json(result.rows);
-  } catch (err) {
-    console.error('❌ Error fetching user orders:', err);
-    next(err);
-  }
-});
-
-// ✅ Admin: Get all orders (placed before /:id to prevent conflict)
+// === Admin: Get all orders (placed before /:id to prevent conflict)
 router.get('/all', adminOnly, async (req, res, next) => {
   try {
     const page = parseInt(req.query.page, 10);
@@ -138,7 +123,6 @@ router.get('/all', adminOnly, async (req, res, next) => {
   }
 });
 
-
 // === Admin: View single order (modal) ===
 router.get('/:id/admin', adminOnly, async (req, res, next) => {
   const orderId = parseInt(req.params.id, 10);
@@ -166,6 +150,21 @@ router.get('/:id/admin', adminOnly, async (req, res, next) => {
     res.json({ ...order, items: itemsRes.rows });
   } catch (err) {
     console.error('❌ Error fetching order details:', err);
+    next(err);
+  }
+});
+
+// === User: Get own orders ===
+router.get('/', async (req, res, next) => {
+  try {
+    const result = await db.query(
+      `SELECT id, total, status, created_at
+       FROM orders WHERE user_id=$1 ORDER BY created_at DESC`,
+      [req.user.id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('❌ Error fetching user orders:', err);
     next(err);
   }
 });
