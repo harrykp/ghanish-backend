@@ -19,7 +19,7 @@ router.use(auth);
 // Create Order
 router.post('/', async (req, res, next) => {
   const userId = req.user.id;
-  const { items } = req.body;
+  const { items, discount_code } = req.body;
 
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'Items array is required.' });
@@ -43,25 +43,58 @@ router.post('/', async (req, res, next) => {
       return { product_id, quantity, unit_price, subtotal };
     });
 
+    let discountPercent = 0;
+
+    // ✅ Optional discount application
+    if (discount_code) {
+      const dRes = await db.query(
+        `SELECT percent_off FROM discounts WHERE code = $1 AND (expires_at IS NULL OR expires_at > NOW())`,
+        [discount_code]
+      );
+      if (dRes.rows.length === 0) {
+        return res.status(400).json({ error: 'Invalid or expired discount code.' });
+      }
+      discountPercent = dRes.rows[0].percent_off;
+    }
+
+    const discountAmount = total * (discountPercent / 100);
+    const finalTotal = total - discountAmount;
+
     const orderRes = await db.query(
-      `INSERT INTO orders (user_id, total) VALUES ($1, $2) RETURNING id, created_at`,
-      [userId, total.toFixed(2)]
+      `INSERT INTO orders (user_id, total, discount_code) VALUES ($1, $2, $3) RETURNING id, created_at`,
+      [userId, finalTotal.toFixed(2), discount_code || null]
     );
+
     const orderId = orderRes.rows[0].id;
 
-    await Promise.all(orderItemsData.map(item =>
-      db.query(
-        `INSERT INTO order_items (order_id, product_id, quantity, unit_price, subtotal)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [orderId, item.product_id, item.quantity, item.unit_price, item.subtotal.toFixed(2)]
+    await Promise.all(
+      orderItemsData.map(item =>
+        db.query(
+          `INSERT INTO order_items (order_id, product_id, quantity, unit_price, subtotal)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            orderId,
+            item.product_id,
+            item.quantity,
+            item.unit_price,
+            item.subtotal.toFixed(2)
+          ]
+        )
       )
-    ));
+    );
 
-    res.status(201).json({ orderId, total: total.toFixed(2), status: 'pending' });
+    res.status(201).json({
+      orderId,
+      total: finalTotal.toFixed(2),
+      discount: discountPercent,
+      status: 'pending'
+    });
+
   } catch (err) {
     next(err);
   }
 });
+
 
 // User's Orders
 router.get('/', async (req, res, next) => {
