@@ -106,7 +106,7 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-// === Admin: Get all orders (with optional pagination) ===
+// ✅ Admin: Get all orders (placed before /:id to prevent conflict)
 router.get('/all', adminOnly, async (req, res, next) => {
   try {
     let { page, limit } = req.query;
@@ -141,10 +141,15 @@ router.get('/all', adminOnly, async (req, res, next) => {
 
 // === Admin: View single order (modal) ===
 router.get('/:id/admin', adminOnly, async (req, res, next) => {
+  const orderId = parseInt(req.params.id, 10);
+  if (isNaN(orderId)) {
+    return res.status(400).json({ error: 'Invalid order ID' });
+  }
+
   try {
     const orderRes = await db.query(
       `SELECT id, total, status, created_at FROM orders WHERE id=$1`,
-      [req.params.id]
+      [orderId]
     );
     const order = orderRes.rows[0];
     if (!order) return res.status(404).json({ error: 'Order not found' });
@@ -155,7 +160,7 @@ router.get('/:id/admin', adminOnly, async (req, res, next) => {
        FROM order_items oi
        JOIN products p ON p.id = oi.product_id
        WHERE order_id = $1`,
-      [req.params.id]
+      [orderId]
     );
 
     res.json({ ...order, items: itemsRes.rows });
