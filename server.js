@@ -10,7 +10,8 @@ const productsRoutes = require('./routes/products');
 const authRoutes = require('./routes/auth');
 const ordersRoutes = require('./routes/orders');
 const adminRoutes = require('./routes/admin');
-const discountRoutes = require('./routes/discounts'); // ✅ NEW: Discounts router
+const discountRoutes = require('./routes/discounts');
+const adminUsersRoutes = require('./routes/users'); // ✅ NEW: Admin users route
 
 const errorHandler = require('./middleware/errorHandler');
 
@@ -33,7 +34,6 @@ app.use(cors({
 app.use(express.json());
 
 (async () => {
-  // === Ensure users table ===
   await db.query(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
@@ -48,7 +48,6 @@ app.use(express.json());
     );
   `);
 
-  // === Ensure products table ===
   await db.query(`
     CREATE TABLE IF NOT EXISTS products (
       id SERIAL PRIMARY KEY,
@@ -62,7 +61,6 @@ app.use(express.json());
     );
   `);
 
-  // === Ensure contact_messages table ===
   await db.query(`
     CREATE TABLE IF NOT EXISTS contact_messages (
       id SERIAL PRIMARY KEY,
@@ -74,7 +72,6 @@ app.use(express.json());
     );
   `);
 
-  // === Ensure orders table ===
   await db.query(`
     CREATE TABLE IF NOT EXISTS orders (
       id SERIAL PRIMARY KEY,
@@ -86,7 +83,6 @@ app.use(express.json());
     );
   `);
 
-  // === Ensure order_items table ===
   await db.query(`
     CREATE TABLE IF NOT EXISTS order_items (
       id SERIAL PRIMARY KEY,
@@ -99,7 +95,6 @@ app.use(express.json());
     );
   `);
 
-  // === Ensure discounts table ===
   await db.query(`
     CREATE TABLE IF NOT EXISTS discounts (
       id SERIAL PRIMARY KEY,
@@ -122,7 +117,8 @@ app.use('/api/contact', contactRoutes);
 app.use('/api/products', productsRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/api/discounts', discountRoutes); // ✅ Mount discount routes
+app.use('/api/discounts', discountRoutes);
+app.use('/api/admin/users', adminUsersRoutes); // ✅ Mount admin users routes
 
 app.get('/', (req, res) => {
   res.json({ message: 'Ghanish backend is up and running.' });
