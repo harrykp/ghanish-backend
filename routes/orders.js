@@ -63,6 +63,7 @@ router.post('/', async (req, res, next) => {
       `INSERT INTO orders (user_id, total, discount_code) VALUES ($1, $2, $3) RETURNING id, created_at`,
       [userId, finalTotal.toFixed(2), discount_code || null]
     );
+
     const orderId = orderRes.rows[0].id;
 
     await Promise.all(
@@ -94,7 +95,7 @@ router.post('/', async (req, res, next) => {
   }
 });
 
-// User: Get own orders
+// User Orders
 router.get('/', async (req, res, next) => {
   try {
     const result = await db.query(
@@ -109,24 +110,39 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-// Admin: Get all orders
+// Admin: All Orders with Pagination
 router.get('/all', adminOnly, async (req, res, next) => {
+  const page = parseInt(req.query.page || '1');
+  const limit = parseInt(req.query.limit || '10');
+  const offset = (page - 1) * limit;
+
   try {
+    const totalRes = await db.query('SELECT COUNT(*) FROM orders');
+    const total = parseInt(totalRes.rows[0].count);
+
     const result = await db.query(`
       SELECT o.id, o.total, o.status, o.created_at,
              u.full_name, u.phone
       FROM orders o
       JOIN users u ON u.id = o.user_id
       ORDER BY o.created_at DESC
-    `);
-    res.json(result.rows);
+      LIMIT $1 OFFSET $2
+    `, [limit, offset]);
+
+    res.json({
+      data: result.rows,
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit)
+    });
   } catch (err) {
     console.error('❌ Error fetching admin orders:', err);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
-// Admin: View single order
+// Admin: Get Single Order Details
 router.get('/:id/admin', adminOnly, async (req, res, next) => {
   try {
     const orderRes = await db.query(
@@ -152,7 +168,7 @@ router.get('/:id/admin', adminOnly, async (req, res, next) => {
   }
 });
 
-// Admin: Update status and email user
+// Admin: Update Order Status and Email
 router.put('/:id/status', adminOnly, async (req, res, next) => {
   const { status } = req.body;
   try {
