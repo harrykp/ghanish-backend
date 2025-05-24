@@ -45,7 +45,6 @@ router.post('/', async (req, res, next) => {
 
     let discountPercent = 0;
 
-    // ✅ Optional discount application
     if (discount_code) {
       const dRes = await db.query(
         `SELECT percent_off FROM discounts WHERE code = $1 AND (expires_at IS NULL OR expires_at > NOW())`,
@@ -95,8 +94,7 @@ router.post('/', async (req, res, next) => {
   }
 });
 
-
-// User's Orders
+// User's Orders List
 router.get('/', async (req, res, next) => {
   try {
     const result = await db.query(
@@ -106,6 +104,51 @@ router.get('/', async (req, res, next) => {
     );
     res.json(result.rows);
   } catch (err) {
+    next(err);
+  }
+});
+
+// User: Get specific order by ID (with debug logging)
+router.get('/:id', async (req, res, next) => {
+  const userId = req.user.id;
+  const orderId = req.params.id;
+
+  try {
+    console.log(`🔍 Attempting to fetch order ID: ${orderId} for user ID: ${userId}`);
+
+    const orderRes = await db.query(
+      `SELECT id, total, status, created_at
+       FROM orders
+       WHERE id = $1 AND user_id = $2`,
+      [orderId, userId]
+    );
+
+    if (orderRes.rows.length === 0) {
+      console.warn(`⚠️ Order not found or not owned by user. Order ID: ${orderId}, User ID: ${userId}`);
+      return res.status(404).json({ error: 'Order not found or access denied.' });
+    }
+
+    const order = orderRes.rows[0];
+
+    const itemsRes = await db.query(
+      `SELECT oi.id,
+              oi.product_id,
+              p.name AS product_name,
+              oi.quantity,
+              oi.unit_price,
+              oi.subtotal
+       FROM order_items oi
+       JOIN products p ON p.id = oi.product_id
+       WHERE oi.order_id = $1`,
+      [orderId]
+    );
+
+    console.log(`✅ Order ${orderId} found for user ${userId}. Returning ${itemsRes.rows.length} items.`);
+
+    res.json({ ...order, items: itemsRes.rows });
+
+  } catch (err) {
+    console.error('❌ Error fetching order by ID:', err);
     next(err);
   }
 });
