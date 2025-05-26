@@ -5,8 +5,32 @@ const auth = require('../middleware/auth');
 const adminOnly = require('../middleware/adminOnly');
 const router = express.Router();
 
-// Require authentication and admin rights for all routes here
+// Require authentication and admin rights for all routes
 router.use(auth, adminOnly);
+
+/**
+ * GET /api/admin/stats — returns total dashboard stats
+ */
+router.get('/stats', async (req, res, next) => {
+  try {
+    const totalOrdersRes = await db.query('SELECT COUNT(*) FROM orders');
+    const totalRevenueRes = await db.query('SELECT SUM(total) FROM orders');
+    const totalUsersRes = await db.query('SELECT COUNT(*) FROM users');
+    const totalProductsRes = await db.query('SELECT COUNT(*) FROM products');
+
+    res.json({
+      stats: {
+        totalOrders: parseInt(totalOrdersRes.rows[0].count),
+        totalRevenue: parseFloat(totalRevenueRes.rows[0].sum || 0),
+        totalUsers: parseInt(totalUsersRes.rows[0].count),
+        totalProducts: parseInt(totalProductsRes.rows[0].count)
+      }
+    });
+  } catch (err) {
+    console.error('❌ Error fetching admin stats:', err);
+    next(err);
+  }
+});
 
 /**
  * GET /api/admin/revenue — returns monthly revenue
