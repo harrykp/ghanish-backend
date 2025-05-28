@@ -105,6 +105,19 @@ app.use(express.json());
     );
   `);
 
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS blogs (
+      id SERIAL PRIMARY KEY,
+      title TEXT NOT NULL,
+      slug TEXT UNIQUE NOT NULL,
+      content TEXT,
+      image_url TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+
+
   console.log('✅ DB tables ensured');
 })().catch(err => {
   console.error('Failed to ensure DB tables:', err);
