@@ -13,6 +13,7 @@ const adminRoutes = require('./routes/admin');
 const discountRoutes = require('./routes/discounts');
 const adminUsersRoutes = require('./routes/users'); // ✅ NEW: Admin users route
 const blogsRoutes = require('./routes/blogs'); // ✅ NEW
+const publicBlogsRoutes = require('./routes/publicBlogs');
 
 
 const errorHandler = require('./middleware/errorHandler');
@@ -135,6 +136,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/discounts', discountRoutes);
 app.use('/api/admin/users', adminUsersRoutes); // ✅ Mount admin users routes
 app.use('/api/blogs', blogsRoutes); // ✅ Mount blog routes
+app.use('/api/public/blogs', publicBlogsRoutes);
 
 
 app.get('/', (req, res) => {
